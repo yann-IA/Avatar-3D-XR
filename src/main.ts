@@ -3,6 +3,8 @@ import { AvatarStage } from './avatar/stage'
 import { Conversation } from './core/conversation'
 import { parseSegment, slugify } from './core/emotion'
 import { MemoryManager } from './core/memory'
+import { browserSTTAvailable } from './stt/engines'
+import { ARSession } from './xr/ar'
 import { DEFAULT_PROFILES, applyProfile, resetProfile, switchProfile } from './profiles'
 import { createLLM } from './llm'
 import { PROVIDERS, loadSettings, saveSettings, type AnimationEntry, type AvatarEntry } from './settings'
@@ -24,7 +26,7 @@ const settings = loadSettings()
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T
 
 const stage = new AvatarStage($<HTMLCanvasElement>('stage'))
-if (new URLSearchParams(location.search).has('debug')) Object.assign(window, { stage })
+if (new URLSearchParams(location.search).has('debug')) Object.assign(window, { stage, getAR: () => ar })
 const statusEl = $('status')
 const userLine = $('user-line')
 const aiLine = $('ai-line')
@@ -47,6 +49,9 @@ const STATE_LABELS = { idle: 'En attente', listening: 'J’écoute…', thinking
 
 /* ---------------------------- Conversation ---------------------------- */
 
+/** Session de réalité augmentée (créée seulement si l'appareil la prend en charge). */
+let ar: ARSession | null = null
+
 const memory = new MemoryManager(settings)
 memory.onChange((added) => {
   if (added.length) {
@@ -63,20 +68,26 @@ const convo = new Conversation(settings, {
     document.body.dataset.state = s
     stage.setActivity(s)
     micBtn.setAttribute('aria-label', s === 'listening' ? 'Terminer' : s === 'idle' ? 'Parler' : 'Interrompre')
+    ar?.setState(s)
   },
   onUserText: (text, final) => {
     userLine.textContent = text
     userLine.classList.toggle('interim', !final)
+    ar?.setUserText(text)
   },
   onAssistantText: (text) => {
     aiLine.textContent = text
     aiLine.scrollTop = aiLine.scrollHeight
+    ar?.setAssistantText(text)
   },
   onEmotion: (e) => stage.setEmotion(e),
   onGesture: (id) => void playGesture(id),
   onMouth: (d) => stage.setMouth(d),
   onMicLevel: (l) => micBtn.style.setProperty('--level', String(l)),
-  onError: (m) => toast(m),
+  onError: (m) => {
+    toast(m)
+    if (ar?.active) ar.showNotice(m) // les messages à l'écran ne sont pas visibles dans le casque
+  },
 }, memory)
 
 function needsSetup(): boolean {
@@ -362,6 +373,59 @@ const panel = new SettingsPanel(settings, {
     aiLine.textContent = ''
     toast('Conversation effacée.', 'info', 2500)
   },
+})
+
+/* -------------------------- Réalité augmentée -------------------------- */
+
+void ARSession.isSupported().then((supported) => {
+  if (!supported) return
+  const btn = $('ar-btn')
+  btn.hidden = false
+  ar = new ARSession(stage, {
+    talk() {
+      if (needsSetup()) {
+        ar?.showNotice('Configure d\u2019abord ton IA et ta clé API dans les réglages (⚙), hors du mode RA.')
+        return
+      }
+      if (settings.stt.engine === 'browser' && !browserSTTAvailable()) {
+        ar?.showNotice('La reconnaissance vocale du navigateur n\u2019existe pas sur ce casque : choisis « Whisper » dans ⚙ → Écoute.')
+        return
+      }
+      void convo.toggleListening()
+    },
+    interrupt() {
+      convo.interrupt()
+      stage.stopGesture()
+    },
+    onStart() {
+      document.body.classList.add('xr')
+      panel.close()
+      ar?.setState(convo.current)
+      ar?.setUserText(userLine.textContent ?? '')
+      ar?.setAssistantText(aiLine.textContent ?? '')
+    },
+    onEnd() {
+      document.body.classList.remove('xr')
+      stage.setFraming(settings.avatar.framing, true)
+    },
+  })
+  btn.addEventListener('click', async () => {
+    await unlockAudio()
+    // L'autorisation du micro s'affiche dans la page : on la demande avant d'entrer dans le casque.
+    if (settings.stt.engine === 'whisper') {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+        stream.getTracks().forEach((t) => t.stop())
+      } catch {
+        toast('Sans accès au micro, tu pourras seulement écouter l\u2019avatar.', 'info', 5000)
+      }
+    }
+    try {
+      await ar?.start()
+    } catch (e) {
+      toast(`Réalité augmentée impossible : ${(e as Error).message}`)
+    }
+  })
 })
 
 /* ------------------------------ Démarrage ------------------------------ */

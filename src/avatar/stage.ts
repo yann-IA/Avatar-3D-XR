@@ -41,6 +41,10 @@ export class AvatarStage {
   private readonly pointer = new THREE.Vector2()
 
   readonly gestures = new GesturePlayer()
+  /** Conteneur de l'avatar : c'est lui qu'on déplace dans la pièce en réalité augmentée. */
+  readonly avatarRoot = new THREE.Group()
+  /** Appelé à chaque image pendant une session de réalité augmentée (placement, manettes…). */
+  xrUpdate: ((dt: number) => void) | null = null
   private vrm: VRM | null = null
   private headHeight = 1.4
   /** Point le plus haut du modèle (cheveux, antenne…), pour cadrer les têtes de toutes tailles. */
@@ -74,6 +78,8 @@ export class AvatarStage {
   constructor(private readonly canvas: HTMLCanvasElement) {
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true, powerPreference: 'high-performance' })
     this.renderer.outputColorSpace = THREE.SRGBColorSpace
+    this.renderer.xr.enabled = true
+    this.scene.add(this.avatarRoot)
     this.setQuality('medium')
 
     const hemi = new THREE.HemisphereLight(0xffffff, 0x444466, 1.4)
@@ -98,6 +104,13 @@ export class AvatarStage {
     })
     this.resize()
     this.renderer.setAnimationLoop(() => this.frame())
+    this.renderer.xr.addEventListener('sessionstart', () => (this.controls.enabled = false))
+    this.renderer.xr.addEventListener('sessionend', () => {
+      this.controls.enabled = true
+      this.avatarRoot.position.set(0, 0, 0)
+      this.avatarRoot.rotation.set(0, 0, 0)
+      this.resize()
+    })
   }
 
   setQuality(q: 'low' | 'medium' | 'high'): void {
@@ -111,6 +124,7 @@ export class AvatarStage {
   }
 
   resize(): void {
+    if (this.renderer.xr.isPresenting) return // le casque impose sa propre taille d'image
     const w = this.canvas.clientWidth || window.innerWidth
     const h = this.canvas.clientHeight || window.innerHeight
     this.renderer.setSize(w, h, false)
@@ -138,11 +152,11 @@ export class AvatarStage {
     vrm.scene.traverse((o) => (o.frustumCulled = false))
 
     if (this.vrm) {
-      this.scene.remove(this.vrm.scene)
+      this.avatarRoot.remove(this.vrm.scene)
       VRMUtils.deepDispose(this.vrm.scene)
     }
     this.vrm = vrm
-    this.scene.add(vrm.scene)
+    this.avatarRoot.add(vrm.scene)
     if (vrm.lookAt) vrm.lookAt.target = this.lookTarget
     padLongHair(vrm) // évite que les mèches longues traversent la poitrine quand l'avatar bouge
     this.hipsRest.fromArray(vrm.humanoid.normalizedRestPose.hips?.position ?? [0, 1, 0])
@@ -157,6 +171,16 @@ export class AvatarStage {
     this.setFraming(this.framing, true)
   }
 
+  /** Vrai pendant une session de réalité augmentée (casque). */
+  get presenting(): boolean {
+    return this.renderer.xr.isPresenting
+  }
+
+  /** Hauteur du sommet de l'avatar (tête, antenne…), en mètres. */
+  get height(): number {
+    return this.modelTop
+  }
+
   get loaded(): boolean {
     return this.vrm !== null
   }
@@ -168,6 +192,7 @@ export class AvatarStage {
   }
 
   private frameCamera(mode: 'bust' | 'upper' | 'full', instant: boolean): void {
+    if (this.renderer.xr.isPresenting) return // en RA, c'est l'utilisateur qui se déplace
     const h = this.headHeight
     const top = this.modelTop
     // Hauteur de la tête (grosse chez un avatar « chibi ») et taille globale par rapport à un humain.
@@ -313,7 +338,7 @@ export class AvatarStage {
       this.saccade.set((Math.random() - 0.5) * 0.12, (Math.random() - 0.5) * 0.08)
       this.nextSaccade = 0.6 + Math.random() * 2.5
     }
-    const p = this.followPointer ? this.pointer : new THREE.Vector2()
+    const p = this.followPointer && !this.renderer.xr.isPresenting ? this.pointer : new THREE.Vector2()
     const target = this.camera.position.clone()
     target.x += p.x * 0.6 + this.saccade.x
     target.y += p.y * 0.4 + this.saccade.y
@@ -385,13 +410,19 @@ export class AvatarStage {
     this.timer.update()
     const dt = Math.min(this.timer.getDelta(), 0.1)
     this.time += dt
-    if (this.cameraGoal) {
-      const k = 1 - Math.exp(-3 * dt)
-      this.controls.target.lerp(this.cameraGoal.target, k)
-      this.camera.position.lerp(this.cameraGoal.position, k)
-      if (this.camera.position.distanceTo(this.cameraGoal.position) < 0.002) this.cameraGoal = null
+    if (this.renderer.xr.isPresenting) {
+      // La caméra suit la tête du casque : on n'applique ni cadrage ni contrôles à la souris.
+      this.cameraGoal = null
+      this.xrUpdate?.(dt)
+    } else {
+      if (this.cameraGoal) {
+        const k = 1 - Math.exp(-3 * dt)
+        this.controls.target.lerp(this.cameraGoal.target, k)
+        this.camera.position.lerp(this.cameraGoal.position, k)
+        if (this.camera.position.distanceTo(this.cameraGoal.position) < 0.002) this.cameraGoal = null
+      }
+      this.controls.update()
     }
-    this.controls.update()
     if (this.vrm) {
       this.talkLevel = damp(this.talkLevel, this.mouth ? 0.6 + this.mouthOpen() * 0.4 : 0, 3, dt)
       this.applyRestPose(this.time)

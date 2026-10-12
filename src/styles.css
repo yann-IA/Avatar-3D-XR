@@ -343,3 +343,18 @@ h3 { margin: 8px 0 0; font-size: 0.95rem; }
 .memory-text { line-height: 1.4; overflow-wrap: anywhere; }
 /* Panneau des réglages ouvert : les messages s'affichent en bas pour ne pas masquer les onglets. */
 body:has(#panel:not([hidden])) .toast { top: auto; bottom: calc(env(safe-area-inset-bottom) + 24px); }
+
+/* ---------- réalité augmentée ---------- */
+.ar-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 42px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 99px;
+  color: white;
+  font-weight: 700;
+  background: linear-gradient(135deg, var(--accent), var(--accent-2));
+  box-shadow: 0 6px 18px rgba(143, 123, 255, 0.4);
+}

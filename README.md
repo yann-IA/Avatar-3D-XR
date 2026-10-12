@@ -1,14 +1,54 @@
-# Compagnon IA — avatar 3D vocal
+# Compagnon IA en réalité augmentée — Avatar 3D XR
 
-Tu parles à voix haute à une IA et son avatar 3D te répond. 
-Il **articule** pendant qu'il parle, **cligne des yeux**, **te regarde**, **respire**,
-fait des **gestes** et change d'**expression** selon l'émotion de chaque phrase (joie, tristesse, surprise…).
+Fork de [Avatar3D](https://github.com/yann-IA/Avatar3D) pour casque **Meta Quest 3** : l'avatar apparaît
+**en taille réelle, debout dans ta pièce**, grâce à la réalité augmentée (passthrough). Tu le places où tu veux
+et tu discutes avec lui à voix haute. Il **articule**, **cligne des yeux**, **te regarde**, **respire**, fait des
+**gestes** et change d'**expression** selon l'émotion de chaque phrase.
 
-Elle fonctionne dans un navigateur : **téléphone** (installable comme une application), **PC**,
-**Raspberry Pi / mini-PC**. Aucun serveur à toi n'est nécessaire, et les clés API restent dans ton navigateur.
+Tout le reste du projet d'origine fonctionne toujours, sur PC et téléphone : voix, IA au choix, avatars,
+gestes, mémoire à long terme.
+
+## Réalité augmentée sur Quest 3
+
+1. Sur le Quest 3, ouvre le **navigateur Meta Quest** et va à l'adresse de l'application
+   (👉 **https://yann-ia.github.io/Avatar-3D-XR/** une fois la publication activée, voir plus bas).
+2. **Avant d'entrer en RA**, règle tout dans la fenêtre normale (⚙) :
+   - **IA** : fournisseur et clé API ;
+   - **Écoute** : choisis **Whisper** (par exemple Groq), car la reconnaissance vocale intégrée au navigateur
+     n'est pas disponible sur le casque ;
+   - **Voix** : une voix « audio » (OpenAI, ElevenLabs…) est plus sûre que les voix de l'appareil sur le casque.
+3. Appuie sur le bouton **RA** (en haut à droite) et autorise le micro si le casque le demande.
+   L'avatar apparaît à 1,6 m devant toi, posé sur le sol, tourné vers toi.
+
+| Action | Manettes | Mains (suivi des mains) |
+|---|---|---|
+| Déplacer l'avatar | Viser le sol et appuyer sur la **gâchette** : il s'y rend | Viser le sol et **pincer** (pouce + index) |
+| Le faire glisser | Maintenir la **gâchette** ou la **poignée** et bouger le rayon | Garder les doigts pincés et bouger la main |
+| Parler | Bouton **A** ou **X** (rappuyer pour terminer) | Viser le **bouton micro** du panneau et pincer |
+| L'interrompre | Bouton **B** ou **Y** | Bouton micro pendant qu'il parle |
+| Quitter la RA | Bouton **Meta** (menu du casque) | Geste du menu du casque |
+
+L'avatar se tourne toujours vers toi, même quand tu te déplaces. Un **panneau flottant** à côté de lui affiche son
+état (« J'écoute… », « Réfléchit… »), ta phrase et sa réponse. Les messages d'erreur s'y affichent aussi.
+
+**Mettre l'application en ligne pour le casque.** La réalité augmentée exige une adresse HTTPS. Le plus simple est
+GitHub Pages, gratuit pour un dépôt **public** : rends le dépôt public (Settings → General → Change visibility),
+puis active Pages (Settings → Pages → Source : **GitHub Actions**). Le site est ensuite publié automatiquement à
+chaque mise à jour de `main`.
+
+**Tester sans casque.** Les tests utilisent [IWER](https://github.com/meta-quest/immersive-web-emulation-runtime),
+l'émulateur WebXR de Meta, qui simule un Quest 3 et ses manettes dans un navigateur ordinaire.
+
+**Récupérer les nouveautés du projet d'origine.**
+
+```bash
+git remote add upstream https://github.com/yann-IA/Avatar3D.git   # une seule fois
+git fetch upstream && git merge upstream/main
+```
 
 | Fonction | Ce qui est inclus |
 |---|---|
+| Réalité augmentée | Sur Quest 3 : avatar à taille réelle dans ta pièce, déplaçable aux manettes ou aux mains, panneau de sous-titres flottant |
 | Avatar 3D | Modèles **VRM** (0.x et 1.0) : celui fourni, n'importe quel `.vrm` importé, ou une URL |
 | Animation | Clignements, regard qui suit la caméra ou le pointeur, respiration, balancement, gestes en parlant, tête penchée quand il écoute, regard en l'air quand il réfléchit |
 | Lèvres | Synchronisées sur le **son réel** (analyse du spectre → voyelles a/i/u/e/o) ou, avec les voix du navigateur, sur le **texte** |
@@ -21,7 +61,7 @@ Elle fonctionne dans un navigateur : **téléphone** (installable comme une appl
 
 ## Utiliser l'application en ligne (rien à installer)
 
-👉 **https://yann-ia.github.io/Avatar3D/**
+👉 **https://yann-ia.github.io/Avatar-3D-XR/**
 
 Ouvre ce lien dans **Chrome** ou **Edge**, sur PC ou sur téléphone. Sur téléphone, « Ajouter à l'écran
 d'accueil » l'installe comme une application. Tes réglages et tes clés API restent enregistrés dans ton navigateur :
@@ -51,8 +91,8 @@ Puis règle l'IA et la voix comme expliqué ci-dessous (étapes 1 à 3).
 Il faut [Node.js](https://nodejs.org) 20.19 ou plus récent (22.12+ pour lancer les tests).
 
 ```bash
-git clone https://github.com/yann-IA/Avatar3D.git
-cd Avatar3D
+git clone https://github.com/yann-IA/Avatar-3D-XR.git
+cd Avatar-3D-XR
 npm install
 npm run dev
 ```
@@ -230,6 +270,7 @@ src/
 │   ├── memory.ts           mémoire à long terme : extraction, stockage et rappel des souvenirs
 │   ├── chunker.ts          découpe le flux en phrases prononçables
 │   └── emotion.ts          balises d'émotion et nettoyage du texte (markdown, emojis…)
+├── xr/ar.ts                réalité augmentée : placement au sol, manettes/mains, panneau flottant
 ├── llm/                    clients IA (compatible OpenAI, Anthropic)
 ├── tts/                    moteurs de voix et file de lecture
 ├── stt/                    reconnaissance vocale (navigateur, Whisper + détection de silence)
