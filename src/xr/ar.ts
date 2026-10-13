@@ -262,6 +262,11 @@ export class ARSession {
     this.redraw()
   }
 
+  /** Niveau du micro (0 à 1) pendant l'écoute : le bouton micro du panneau « respire » avec la voix. */
+  setLevel(level: number): void {
+    this.mic.scale.setScalar(1 + Math.min(1, level) * 0.45)
+  }
+
   setKeys(state: KeysState): void {
     this.keysState = state
     this.redraw()

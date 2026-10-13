@@ -85,7 +85,10 @@ const convo = new Conversation(settings, {
   onEmotion: (e) => stage.setEmotion(e),
   onGesture: (id) => void playGesture(id),
   onMouth: (d) => stage.setMouth(d),
-  onMicLevel: (l) => micBtn.style.setProperty('--level', String(l)),
+  onMicLevel: (l) => {
+    micBtn.style.setProperty('--level', String(l))
+    ar?.setLevel(l) // en RA, le bouton micro du panneau grossit avec la voix : on voit que le micro entend
+  },
   onError: (m) => {
     toast(m)
     if (ar?.active) ar.showNotice(m) // les messages à l'écran ne sont pas visibles dans le casque
@@ -262,27 +265,10 @@ const vault = new VaultDialog(settings, vaultApplied)
 /** Dernier coffre trouvé (site ou fichier importé), pour l'indicateur et la réalité augmentée. */
 let knownVault: VaultFile | null = null
 
-/** Indicateur en haut de l'écran (et sur le panneau en RA) : les clés sont-elles chargées ? */
+/** État des clés pour le panneau de réalité augmentée (le détail est dans ⚙ → IA). */
 function updateKeysIndicator(): void {
-  const badge = $<HTMLButtonElement>('keys-badge')
-  const fromVault = loadedVaultKeys(settings)
-  if (fromVault) {
-    badge.className = 'keys-badge on'
-    badge.innerHTML = `🔐<span class="label"> Clés chargées</span>`
-    badge.title = `${plural(fromVault, 'clé')} du coffre ${fromVault > 1 ? 'sont chargées' : 'est chargée'} sur cet appareil`
-  } else if (needsSetup() && knownVault) {
-    badge.className = 'keys-badge off'
-    badge.innerHTML = `🔒<span class="label"> Coffre verrouillé</span>`
-    badge.title = 'Entre ta phrase secrète pour charger tes clés API'
-  }
-  badge.hidden = !fromVault && !(needsSetup() && knownVault)
-  ar?.setKeys(fromVault ? 'vault' : needsSetup() ? 'missing' : 'manual')
+  ar?.setKeys(loadedVaultKeys(settings) ? 'vault' : needsSetup() ? 'missing' : 'manual')
 }
-
-$('keys-badge').addEventListener('click', () => {
-  if (!loadedVaultKeys(settings) && knownVault) vault.unlock(knownVault, { remindLater: false })
-  else panel.open('ia')
-})
 
 /** Au démarrage : propose le coffre s'il est nouveau pour cet appareil. */
 async function offerVault(): Promise<boolean> {

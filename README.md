@@ -277,10 +277,9 @@ plus qu'à taper cette phrase.
    flottant rouvre ce clavier. Si tu crées plus tard un nouveau coffre (nouvelle clé), il est proposé à nouveau
    sur les appareils déjà configurés.
 
-**Indicateurs.** En haut de l'écran, la pastille verte **🔐 Clés chargées** confirme que les clés du coffre sont
-sur l'appareil (une pastille orange **🔒 Coffre verrouillé** signifie qu'il reste à taper la phrase secrète ; un
-clic dessus ouvre la fenêtre). ⚙ → IA détaille les clés chargées. En RA, le panneau affiche « Clés du coffre ✓ »
-et le cadenas devient vert.
+**Vérifier que les clés sont chargées.** Un message le confirme au déverrouillage, et ⚙ → IA indique l'état du
+coffre sur l'appareil (clés chargées, coffre trouvé mais pas encore déverrouillé, ou aucun coffre). En RA, le
+panneau affiche « Clés du coffre ✓ » et le cadenas devient vert.
 
 **Clés masquées.** Les clés chargées depuis le coffre ne sont jamais affichées dans les réglages (IA, Voix,
 Écoute) : à leur place, « 🔐 Chargée depuis le coffre ». Personne ne peut donc les lire ni les recopier en
