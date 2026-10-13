@@ -454,7 +454,7 @@ body:has(#panel:not([hidden])) .toast { top: auto; bottom: calc(env(safe-area-in
 .picker-list small { display: block; opacity: 0.6; font-size: 0.75rem; }
 
 /* Réalité augmentée sur téléphone : l'interface est affichée par-dessus la caméra. */
-#ui:xr-overlay { background: transparent; }
+#ui:xr-overlay { background: transparent; touch-action: none; }
 .ar-btn.unavailable { opacity: 0.45; filter: grayscale(1); box-shadow: none; }
 .ar-btn[aria-pressed='true'] { outline: 2px solid #fff; outline-offset: 2px; }
 .vault-status.ready { background: rgba(255, 198, 92, 0.12); border: 1px solid rgba(255, 198, 92, 0.5); color: var(--think); }

@@ -74,6 +74,9 @@ export class ARSession {
   /** Geste à deux mains (ou deux doigts) en cours : agrandir / réduire et faire pivoter. */
   private pinch: { d0: number; s0: number; a0: number; y0: number } | null = null
   private beforePress = new THREE.Vector3()
+  /** Deux doigts sur l'écran du téléphone (événements tactiles de la page affichée par-dessus la caméra). */
+  private touchPinch: { d0: number; s0: number; a0: number; y0: number } | null = null
+  private readonly onTouch = (e: TouchEvent) => this.handleTouch(e)
   /** Hauteur du sol dans le référentiel de la session (0 avec « local-floor », détectée sinon). */
   private floorY = 0
   private floorKnown = false
@@ -226,6 +229,7 @@ export class ARSession {
     if (overlayRoot && this.overlay) {
       this.overlayRoot = overlayRoot
       overlayRoot.addEventListener('beforexrselect', blockSelectOnUI)
+      this.attachTouch(overlayRoot)
     }
     this.stage.xrUpdate = (dt) => this.update(dt)
     session.addEventListener('end', () => this.cleanup())
@@ -241,7 +245,9 @@ export class ARSession {
     this.hitTest?.cancel()
     this.hitTest = null
     this.overlayRoot?.removeEventListener('beforexrselect', blockSelectOnUI)
+    if (this.overlayRoot) this.detachTouch(this.overlayRoot)
     this.overlayRoot = null
+    this.touchPinch = null
     this.overlay = false
     this.session = null
     this.stage.xrUpdate = null
@@ -441,7 +447,44 @@ export class ARSession {
     return this.raycaster.intersectObject(object, false).length > 0
   }
 
+  /**
+   * Chrome sur Android ne transmet à la réalité augmentée qu'un seul doigt à la fois : le geste à deux
+   * doigts est donc lu sur les événements tactiles de l'interface affichée par-dessus la caméra.
+   */
+  attachTouch(el: HTMLElement): void {
+    for (const type of ['touchstart', 'touchmove', 'touchend', 'touchcancel'] as const) el.addEventListener(type, this.onTouch, { passive: false })
+  }
+
+  detachTouch(el: HTMLElement): void {
+    for (const type of ['touchstart', 'touchmove', 'touchend', 'touchcancel'] as const) el.removeEventListener(type, this.onTouch)
+  }
+
+  private handleTouch(e: TouchEvent): void {
+    if (e.touches.length >= 2 && !this.keyboard.isOpen) {
+      const [a, b] = [e.touches[0], e.touches[1]]
+      const d = Math.max(Math.hypot(b.clientX - a.clientX, b.clientY - a.clientY), 1)
+      const angle = Math.atan2(b.clientY - a.clientY, b.clientX - a.clientX)
+      if (!this.touchPinch) {
+        this.touchPinch = { d0: d, s0: this.avatarScale, a0: angle, y0: this.yawGoal }
+        this.pinch = null
+        this.dragging.clear()
+        this.target.copy(this.beforePress) // annule le déplacement lancé par le premier doigt
+      } else {
+        this.setScale((this.touchPinch.s0 * d) / this.touchPinch.d0)
+        let turn = angle - this.touchPinch.a0
+        turn = Math.atan2(Math.sin(turn), Math.cos(turn))
+        this.yawGoal = this.touchPinch.y0 - turn
+      }
+      e.preventDefault()
+    } else if (this.touchPinch && e.touches.length < 2) {
+      this.touchPinch = null
+      this.dragging.clear()
+      this.hooks.onScale?.(this.avatarScale)
+    }
+  }
+
   private hold(c: THREE.Group, kind: 'select' | 'squeeze'): void {
+    if (this.touchPinch) return // geste à deux doigts en cours
     this.held.add(c)
     // Deuxième main (ou deuxième doigt) : on passe au geste « agrandir / pivoter ».
     if (this.held.size === 2 && !this.keyboard.isOpen) {
