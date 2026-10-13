@@ -3,7 +3,7 @@ import { AvatarStage } from './avatar/stage'
 import { Conversation } from './core/conversation'
 import { parseSegment, slugify } from './core/emotion'
 import { MemoryManager } from './core/memory'
-import { browserSTTAvailable } from './stt/engines'
+import { sttEngineFor } from './stt/engines'
 import { ARSession } from './xr/ar'
 import { VaultDialog } from './ui/vaultDialog'
 import { WrongPassphraseError, availableVault, forgetVaultKeys, loadedVaultKeys, parseVault, releaseKey, unlockVault, type VaultFile } from './vault'
@@ -305,6 +305,13 @@ async function offerVault(): Promise<boolean> {
 /** Réalité augmentée : clavier virtuel pour taper la phrase secrète sans quitter le casque. */
 async function arUnlock(): Promise<void> {
   if (!ar?.active || ar.typing) return
+  if (ar.overlay) {
+    // Téléphone : l'interface web est visible, on utilise la fenêtre et le clavier du téléphone.
+    const file = (knownVault = await availableVault())
+    if (file && !loadedVaultKeys(settings)) vault.unlock(file, { remindLater: false })
+    else if (needsSetup()) panel.open('ia')
+    return
+  }
   const loaded = loadedVaultKeys(settings)
   if (loaded && !needsSetup()) {
     ar.showNotice(`✓ ${plural(loaded, 'clé')} du coffre ${loaded > 1 ? 'sont chargées' : 'est chargée'}. Pour ${loaded > 1 ? 'les' : 'la'} désactiver : ⚙ → IA → « Désactiver le coffre ».`, 7000, true)
@@ -495,9 +502,32 @@ const panel = new SettingsPanel(settings, {
 
 /* -------------------------- Réalité augmentée -------------------------- */
 
+/** Pourquoi la réalité augmentée n'est pas disponible sur cet appareil, et quoi faire. */
+function arUnavailableReason(): string {
+  const ua = navigator.userAgent
+  if (!window.isSecureContext) return 'La réalité augmentée exige une adresse en HTTPS.'
+  if (/iPhone|iPad|iPod/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1))
+    return 'Sur iPhone et iPad, Safari ne gère pas encore la réalité augmentée du web (WebXR). Elle fonctionne sur Android avec Chrome, et sur les casques Meta Quest.'
+  if (/Firefox|FxiOS/.test(ua)) return 'Firefox ne gère pas la réalité augmentée (WebXR). Sur Android, ouvre cette page dans Chrome.'
+  if (/SamsungBrowser/.test(ua)) return 'Samsung Internet ne gère pas bien la réalité augmentée : ouvre cette page dans Chrome.'
+  if (/Android/.test(ua))
+    return 'La réalité augmentée n’est pas disponible : utilise Chrome à jour et installe « Services Google Play pour la RA » (ARCore) depuis le Play Store, puis recharge la page.'
+  return 'Cet appareil ne gère pas la réalité augmentée. Elle fonctionne sur un téléphone Android avec Chrome, et sur les casques Meta Quest.'
+}
+
+const touchDevice = matchMedia('(pointer: coarse)').matches
+
 void ARSession.isSupported().then((supported) => {
-  if (!supported) return
   const btn = $('ar-btn')
+  if (!supported) {
+    // Sur mobile, le bouton reste visible pour expliquer pourquoi la RA n'est pas possible ici.
+    if (touchDevice) {
+      btn.hidden = false
+      btn.classList.add('unavailable')
+      btn.addEventListener('click', () => toast(arUnavailableReason(), 'info', 10000))
+    }
+    return
+  }
   btn.hidden = false
   ar = new ARSession(stage, {
     talk() {
@@ -505,8 +535,8 @@ void ARSession.isSupported().then((supported) => {
         void arUnlock()
         return
       }
-      if (settings.stt.engine === 'browser' && !browserSTTAvailable()) {
-        ar?.showNotice('La reconnaissance vocale du navigateur n\u2019existe pas sur ce casque : choisis « Whisper » dans ⚙ → Écoute.')
+      if (sttEngineFor(settings) === 'unavailable') {
+        ar?.showNotice('Ce navigateur ne reconnaît pas la voix lui-même : ajoute une clé OpenAI (⚙ → IA, ou ⚙ → Écoute → Whisper), hors du mode RA.', 8000)
         return
       }
       void convo.toggleListening()
@@ -518,6 +548,7 @@ void ARSession.isSupported().then((supported) => {
     keys: () => void arUnlock(),
     onStart() {
       document.body.classList.add('xr')
+      btn.setAttribute('aria-pressed', 'true')
       panel.close()
       ar?.setState(convo.current)
       ar?.setUserText(userLine.textContent ?? '')
@@ -527,10 +558,15 @@ void ARSession.isSupported().then((supported) => {
     },
     onEnd() {
       document.body.classList.remove('xr')
+      btn.setAttribute('aria-pressed', 'false')
       stage.setFraming(settings.avatar.framing, true)
     },
   })
   btn.addEventListener('click', async () => {
+    if (ar?.active) {
+      void ar.stop() // au téléphone, le bouton reste visible et sert à quitter la RA
+      return
+    }
     await unlockAudio()
     // L'autorisation du micro s'affiche dans la page : on la demande avant d'entrer dans le casque.
     if (settings.stt.engine === 'whisper') {
@@ -542,7 +578,7 @@ void ARSession.isSupported().then((supported) => {
       }
     }
     try {
-      await ar?.start()
+      await ar?.start($('ui'))
     } catch (e) {
       toast(`Réalité augmentée impossible : ${(e as Error).message}`)
     }

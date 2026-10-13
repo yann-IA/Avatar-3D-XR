@@ -61,6 +61,15 @@ export class ARSession {
   private readonly target = new THREE.Vector3()
   private placed = false
   private yaw = 0
+  /** Hauteur du sol dans le référentiel de la session (0 avec « local-floor », détectée sinon). */
+  private floorY = 0
+  private floorKnown = false
+  private hitTest: XRHitTestSource | null = null
+  /** Téléphone ou tablette : pas de manettes, on touche l'écran ; l'interface web reste visible. */
+  private handheld = false
+  /** L'interface web est affichée par-dessus la caméra (téléphone Android avec Chrome). */
+  overlay = false
+  private overlayRoot: HTMLElement | null = null
 
   private state: Activity = 'idle'
   private userText = ''
@@ -167,18 +176,44 @@ export class ARSession {
     return this.session !== null
   }
 
-  async start(): Promise<void> {
+  async start(overlayRoot?: HTMLElement): Promise<void> {
     if (this.session || !navigator.xr) return
+    // Seul « immersive-ar » est indispensable : le sol, la détection des surfaces et l'interface
+    // par-dessus la caméra sont utilisés quand l'appareil les propose (casque Quest, Chrome Android…).
     const session = await navigator.xr.requestSession('immersive-ar', {
-      requiredFeatures: ['local-floor'],
-      optionalFeatures: ['hand-tracking', 'bounded-floor'],
+      optionalFeatures: ['local-floor', 'hit-test', 'dom-overlay', 'hand-tracking', 'bounded-floor'],
+      ...(overlayRoot ? { domOverlay: { root: overlayRoot } } : {}),
     })
     this.session = session
     this.placed = false
+    this.handheld = /Android|iPhone|iPad/i.test(navigator.userAgent) && !/OculusBrowser|Quest|Pico/i.test(navigator.userAgent)
+    this.overlay = Boolean((session as XRSession & { domOverlayState?: unknown }).domOverlayState)
+    const hasFloor = await session.requestReferenceSpace('local-floor').then(
+      () => true,
+      () => false,
+    )
+    // Sans « local-floor » (téléphones), le sol est estimé ~1,4 m sous l'appareil puis détecté par la caméra.
+    this.floorY = hasFloor ? 0 : -1.4
+    this.floorKnown = hasFloor
+    this.floor.constant = -this.floorY
     const xr = this.stage.renderer.xr
-    xr.setReferenceSpaceType('local-floor')
+    xr.setReferenceSpaceType(hasFloor ? 'local-floor' : 'local')
     await xr.setSession(session)
-    this.shadow.visible = this.panel.visible = true
+    this.hitTest = null
+    if (!hasFloor && session.requestHitTestSource) {
+      session
+        .requestReferenceSpace('viewer')
+        .then((space) => session.requestHitTestSource!({ space }))
+        .then((source) => (this.hitTest = source ?? null))
+        .catch(() => {})
+    }
+    this.shadow.visible = true
+    // Avec l'interface web par-dessus la caméra, le panneau flottant ferait doublon.
+    this.panel.visible = !this.overlay
+    if (overlayRoot && this.overlay) {
+      this.overlayRoot = overlayRoot
+      overlayRoot.addEventListener('beforexrselect', blockSelectOnUI)
+    }
     this.stage.xrUpdate = (dt) => this.update(dt)
     session.addEventListener('end', () => this.cleanup())
     this.hooks.onStart()
@@ -190,6 +225,11 @@ export class ARSession {
 
   private cleanup(): void {
     this.keyboard.cancel()
+    this.hitTest?.cancel()
+    this.hitTest = null
+    this.overlayRoot?.removeEventListener('beforexrselect', blockSelectOnUI)
+    this.overlayRoot = null
+    this.overlay = false
     this.session = null
     this.stage.xrUpdate = null
     this.reticle.visible = this.shadow.visible = this.panel.visible = false
@@ -412,10 +452,29 @@ export class ARSession {
     }
   }
 
+  /** Téléphone : la caméra détecte les surfaces ; la plus basse, horizontale, est le sol. */
+  private detectFloor(head: THREE.Vector3): void {
+    const xr = this.stage.renderer.xr
+    const frame = xr.getFrame()
+    const space = xr.getReferenceSpace()
+    if (!this.hitTest || !frame || !space) return
+    const pose = frame.getHitTestResults(this.hitTest)[0]?.getPose(space)
+    if (!pose) return
+    const o = pose.transform.orientation
+    const normal = new THREE.Vector3(0, 1, 0).applyQuaternion(new THREE.Quaternion(o.x, o.y, o.z, o.w))
+    const y = pose.transform.position.y
+    if (normal.y < 0.9 || y > head.y - 0.7) return // mur, table ou surface trop haute
+    if (!this.floorKnown || y < this.floorY - 0.05) this.floorY = y
+    else this.floorY += (y - this.floorY) * 0.05
+    this.floorKnown = true
+    this.floor.constant = -this.floorY
+  }
+
   private update(dt: number): void {
     const camera = this.stage.renderer.xr.getCamera()
     const head = camera.getWorldPosition(new THREE.Vector3())
     const root = this.stage.avatarRoot
+    if (this.hitTest) this.detectFloor(head)
 
     // Première image : l'avatar apparaît à 1,6 m devant l'utilisateur, face à lui.
     if (!this.placed && head.lengthSq() > 0) {
@@ -423,7 +482,9 @@ export class ARSession {
       forward.y = 0
       if (forward.lengthSq() < 1e-4) forward.set(0, 0, -1)
       forward.normalize()
-      this.target.set(head.x + forward.x * 1.6, 0, head.z + forward.z * 1.6)
+      // Au téléphone, un peu plus loin pour voir l'avatar en entier malgré l'angle de vue réduit.
+      const distance = this.handheld ? 2.2 : 1.6
+      this.target.set(head.x + forward.x * distance, this.floorY, head.z + forward.z * distance)
       root.position.copy(this.target)
       this.yaw = Math.atan2(head.x - this.target.x, head.z - this.target.z)
       this.placed = true
@@ -459,11 +520,11 @@ export class ARSession {
       this.keyboard.setHover(hover)
     }
     this.reticle.visible = aim !== null
-    if (aim) this.reticle.position.copy(aim).setY(0.004)
+    if (aim) this.reticle.position.copy(aim).setY(this.floorY + 0.004)
 
     // Déplacement fluide vers la destination, et rotation pour faire face à l'utilisateur.
     root.position.lerp(this.target, 1 - Math.exp(-GLIDE * dt))
-    root.position.y = 0
+    root.position.y = this.floorY
     const wanted = Math.atan2(head.x - root.position.x, head.z - root.position.z)
     let delta = wanted - this.yaw
     delta = Math.atan2(Math.sin(delta), Math.cos(delta))
@@ -473,7 +534,7 @@ export class ARSession {
     // Panneau : sur le côté de l'avatar (vu depuis l'utilisateur), à hauteur des yeux de l'avatar.
     const toUser = new THREE.Vector3(head.x - root.position.x, 0, head.z - root.position.z).normalize()
     const side = new THREE.Vector3(toUser.z, 0, -toUser.x) // à droite de l'avatar vu par l'utilisateur
-    const h = Math.min(Math.max(this.stage.height * 0.75, 0.9), 1.5)
+    const h = this.floorY + Math.min(Math.max(this.stage.height * 0.75, 0.9), 1.5)
     this.panel.position.copy(root.position).addScaledVector(side, -0.75).addScaledVector(toUser, 0.15).setY(h)
     this.panel.lookAt(head.x, h, head.z)
     if (this.notice && performance.now() > this.noticeUntil) {
@@ -486,6 +547,13 @@ export class ARSession {
 }
 
 /* ------------------------------ Utilitaires ------------------------------ */
+
+/** Un toucher sur un bouton de l'interface web ne doit pas aussi déplacer l'avatar. */
+function blockSelectOnUI(e: Event): void {
+  if ((e.target as HTMLElement | null)?.closest?.('button, input, textarea, select, a, label, dialog, .panel, .controls, .topbar, .gesture-menu, .toast')) {
+    e.preventDefault()
+  }
+}
 
 function rayLine(): THREE.Line {
   const geometry = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 0, -1)])

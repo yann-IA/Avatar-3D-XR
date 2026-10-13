@@ -15,6 +15,9 @@
   <body>
     <canvas id="stage"></canvas>
 
+    <!-- Interface : en réalité augmentée sur téléphone, elle reste affichée par-dessus la caméra. -->
+    <div id="ui">
+
     <div id="loader" class="loader" hidden>
       <div class="spinner"></div>
       <div id="loader-text">Chargement de l'avatar…</div>
@@ -69,6 +72,7 @@
       <nav id="tabs" class="tabs"></nav>
       <div id="panel-body" class="panel-body"></div>
     </aside>
+    </div>
 
     <script type="module" src="/src/main.ts"></script>
   </body>

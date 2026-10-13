@@ -33,6 +33,13 @@ gestes, mémoire à long terme.
 L'avatar se tourne toujours vers toi, même quand tu te déplaces. Un **panneau flottant** à côté de lui affiche son
 état (« J'écoute… », « Réfléchit… »), ta phrase et sa réponse. Les messages d'erreur s'y affichent aussi.
 
+**Sur un téléphone Android.** La RA fonctionne aussi avec **Chrome** (pas Firefox ni Samsung Internet) sur un
+téléphone compatible ARCore, avec l'application « Services Google Play pour la RA » installée. Appuie sur **RA** :
+l'avatar apparaît par terre à environ 2 m (bouge un peu le téléphone pour que la caméra trouve le sol), touche
+l'écran à un endroit du sol pour l'y envoyer, et garde le doigt appuyé pour le faire glisser. L'interface habituelle
+(micro, messages, réglages) reste affichée par-dessus la caméra ; rappuie sur **RA** pour quitter. Sur iPhone,
+Safari ne propose pas encore la RA du web. Si la RA n'est pas possible, le bouton RA reste grisé et explique pourquoi.
+
 **Mettre l'application en ligne pour le casque.** La réalité augmentée exige une adresse HTTPS. Le plus simple est
 GitHub Pages, gratuit pour un dépôt **public** : rends le dépôt public (Settings → General → Change visibility),
 puis active Pages (Settings → Pages → Source : **GitHub Actions**). Le site est ensuite publié automatiquement à
@@ -232,6 +239,12 @@ de l'un à l'autre à tout moment. La personnalité se règle dans **⚙ → Per
   pour la voix. Pour encore moins d'attente, choisis `claude-haiku-4-5` ou `claude-sonnet-5-5`. Sur les modèles
   récents, si un filtre de sécurité refuse une requête, elle est automatiquement rejouée sur un autre modèle
   (paramètre `fallbacks: "default"`).
+- **Choisir un modèle** : « Lister » interroge le fournisseur ; la liste défile et se filtre en tapant (« mini »,
+  « claude »…). Les modèles qui ne servent pas à discuter (Whisper, voix, images) n'y figurent pas : la
+  reconnaissance vocale Whisper se règle dans **⚙ → Écoute**.
+- **Une seule clé OpenAI suffit** : si les champs de clé des onglets Voix et Écoute sont vides, la clé saisie
+  dans ⚙ → IA pour le même service est utilisée. Sur un navigateur qui ne reconnaît pas la voix lui-même
+  (Firefox, casque Quest…), Whisper est alors utilisé automatiquement.
 - **Ollama** : `ollama serve` puis `ollama pull llama3.2`. Si le navigateur bloque l'appel, lance Ollama avec
   `OLLAMA_ORIGINS=*` ou coche « Passer par le relais local ».
 - **Erreur CORS / « Failed to fetch »** : certains fournisseurs refusent les appels faits directement depuis un
