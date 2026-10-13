@@ -9,6 +9,8 @@ export interface ARHooks {
   interrupt(): void
   /** Bouton cadenas du panneau : charger les clés du coffre (ou voir leur état). */
   keys(): void
+  /** Taille de l'avatar changée à deux mains (ou deux doigts) : pour la mémoriser. */
+  onScale?(scale: number): void
   onStart(): void
   onEnd(): void
 }
@@ -27,6 +29,9 @@ export type KeysState = 'vault' | 'manual' | 'missing'
 const MAX_REACH = 10
 /** Vitesse de déplacement de l'avatar vers sa destination. */
 const GLIDE = 6
+/** Taille de l'avatar : de 30 % à 250 % de sa taille réelle. */
+const MIN_SCALE = 0.3
+const MAX_SCALE = 2.5
 
 /**
  * Réalité augmentée (casque Meta Quest et autres appareils WebXR « immersive-ar ») :
@@ -61,6 +66,14 @@ export class ARSession {
   private readonly target = new THREE.Vector3()
   private placed = false
   private yaw = 0
+  /** Orientation voulue : l'avatar ne pivote plus tout seul pour suivre l'utilisateur. */
+  private yawGoal = 0
+  private avatarScale = 1
+  /** Manettes, mains ou doigts dont la gâchette / le pincement / le contact est maintenu. */
+  private readonly held = new Set<THREE.Group>()
+  /** Geste à deux mains (ou deux doigts) en cours : agrandir / réduire et faire pivoter. */
+  private pinch: { d0: number; s0: number; a0: number; y0: number } | null = null
+  private beforePress = new THREE.Vector3()
   /** Hauteur du sol dans le référentiel de la session (0 avec « local-floor », détectée sinon). */
   private floorY = 0
   private floorKnown = false
@@ -160,13 +173,13 @@ export class ARSession {
       })
       c.addEventListener('disconnected', () => {
         this.sources.delete(c)
-        this.dragging.delete(c)
+        this.release(c)
         c.visible = false
       })
-      c.addEventListener('selectstart', () => this.onPress(c))
-      c.addEventListener('selectend', () => this.dragging.delete(c))
-      c.addEventListener('squeezestart', () => this.dragging.add(c))
-      c.addEventListener('squeezeend', () => this.dragging.delete(c))
+      c.addEventListener('selectstart', () => this.hold(c, 'select'))
+      c.addEventListener('selectend', () => this.release(c))
+      c.addEventListener('squeezestart', () => this.hold(c, 'squeeze'))
+      c.addEventListener('squeezeend', () => this.release(c))
       scene.add(c)
       this.controllers.push(c)
     }
@@ -234,6 +247,8 @@ export class ARSession {
     this.stage.xrUpdate = null
     this.reticle.visible = this.shadow.visible = this.panel.visible = false
     this.dragging.clear()
+    this.held.clear()
+    this.pinch = null
     this.hooks.onEnd()
   }
 
@@ -260,6 +275,15 @@ export class ARSession {
     this.noticeOk = ok
     this.noticeUntil = performance.now() + ms
     this.redraw()
+  }
+
+  get scale(): number {
+    return this.avatarScale
+  }
+
+  setScale(scale: number): void {
+    this.avatarScale = THREE.MathUtils.clamp(scale, MIN_SCALE, MAX_SCALE)
+    this.stage.avatarRoot.scale.setScalar(this.avatarScale)
   }
 
   /** Niveau du micro (0 à 1) pendant l'écoute : le bouton micro du panneau « respire » avec la voix. */
@@ -417,6 +441,56 @@ export class ARSession {
     return this.raycaster.intersectObject(object, false).length > 0
   }
 
+  private hold(c: THREE.Group, kind: 'select' | 'squeeze'): void {
+    this.held.add(c)
+    // Deuxième main (ou deuxième doigt) : on passe au geste « agrandir / pivoter ».
+    if (this.held.size === 2 && !this.keyboard.isOpen) {
+      const [a, b] = [...this.held]
+      this.pinch = { d0: Math.max(this.handDistance(a, b), 1e-3), s0: this.avatarScale, a0: this.handAngle(a, b), y0: this.yawGoal }
+      this.dragging.clear()
+      this.target.copy(this.beforePress) // annule le déplacement lancé par la première main
+      return
+    }
+    if (this.held.size > 1) return
+    this.beforePress.copy(this.target)
+    if (kind === 'select') this.onPress(c)
+    else this.dragging.add(c)
+  }
+
+  private release(c: THREE.Group): void {
+    if (!this.held.delete(c) && !this.dragging.has(c)) return
+    if (this.pinch && this.held.size < 2) {
+      this.pinch = null
+      this.dragging.clear() // la main restante ne déplace pas l'avatar
+      this.hooks.onScale?.(this.avatarScale)
+      return
+    }
+    // Fin d'un déplacement : arrivé à destination, l'avatar se tourne vers l'utilisateur.
+    if (this.dragging.delete(c)) this.faceUserAt(this.target)
+  }
+
+  private faceUserAt(p: THREE.Vector3): void {
+    const head = this.stage.renderer.xr.getCamera().getWorldPosition(new THREE.Vector3())
+    this.yawGoal = Math.atan2(head.x - p.x, head.z - p.z)
+  }
+
+  /** Position d'une main / d'un doigt : pour un doigt sur l'écran, dans le plan de l'écran. */
+  private handPoint(c: THREE.Group): THREE.Vector3 {
+    const p = c.getWorldPosition(new THREE.Vector3())
+    if (this.sources.get(c)?.targetRayMode === 'screen') this.stage.renderer.xr.getCamera().worldToLocal(p)
+    return p
+  }
+
+  private handDistance(a: THREE.Group, b: THREE.Group): number {
+    return this.handPoint(a).distanceTo(this.handPoint(b))
+  }
+
+  /** Angle entre les deux mains vu du dessus (ou entre les deux doigts sur l'écran). */
+  private handAngle(a: THREE.Group, b: THREE.Group): number {
+    const v = this.handPoint(b).sub(this.handPoint(a))
+    return this.sources.get(a)?.targetRayMode === 'screen' ? Math.atan2(v.y, v.x) : Math.atan2(v.x, v.z)
+  }
+
   private onPress(c: THREE.Group): void {
     if (this.keyboard.isOpen) {
       const ray = this.rayFrom(c)
@@ -491,7 +565,7 @@ export class ARSession {
       const distance = this.handheld ? 2.2 : 1.6
       this.target.set(head.x + forward.x * distance, this.floorY, head.z + forward.z * distance)
       root.position.copy(this.target)
-      this.yaw = Math.atan2(head.x - this.target.x, head.z - this.target.z)
+      this.yaw = this.yawGoal = Math.atan2(head.x - this.target.x, head.z - this.target.z)
       this.placed = true
     }
 
@@ -527,20 +601,35 @@ export class ARSession {
     this.reticle.visible = aim !== null
     if (aim) this.reticle.position.copy(aim).setY(this.floorY + 0.004)
 
-    // Déplacement fluide vers la destination, et rotation pour faire face à l'utilisateur.
+    // Deux mains / deux doigts : écarter pour agrandir, rapprocher pour réduire, tourner pour pivoter.
+    if (this.pinch && this.held.size === 2) {
+      const [a, b] = [...this.held]
+      this.setScale((this.pinch.s0 * this.handDistance(a, b)) / this.pinch.d0)
+      let turn = this.handAngle(a, b) - this.pinch.a0
+      turn = Math.atan2(Math.sin(turn), Math.cos(turn))
+      this.yawGoal = this.pinch.y0 + turn
+    }
+    // Joystick gauche / droite : faire pivoter l'avatar sur lui-même.
+    for (const source of this.sources.values()) {
+      const x = source.gamepad?.axes[2] ?? 0
+      if (Math.abs(x) > 0.25) this.yawGoal -= x * 1.8 * dt
+    }
+
+    // Déplacement fluide vers la destination. L'avatar garde son orientation : on peut tourner
+    // autour de lui (sa tête et son regard suivent l'utilisateur).
     root.position.lerp(this.target, 1 - Math.exp(-GLIDE * dt))
     root.position.y = this.floorY
-    const wanted = Math.atan2(head.x - root.position.x, head.z - root.position.z)
-    let delta = wanted - this.yaw
+    let delta = this.yawGoal - this.yaw
     delta = Math.atan2(Math.sin(delta), Math.cos(delta))
-    this.yaw += delta * (1 - Math.exp(-4 * dt))
+    this.yaw += delta * (1 - Math.exp(-6 * dt))
     root.rotation.set(0, this.yaw, 0)
 
     // Panneau : sur le côté de l'avatar (vu depuis l'utilisateur), à hauteur des yeux de l'avatar.
     const toUser = new THREE.Vector3(head.x - root.position.x, 0, head.z - root.position.z).normalize()
     const side = new THREE.Vector3(toUser.z, 0, -toUser.x) // à droite de l'avatar vu par l'utilisateur
-    const h = this.floorY + Math.min(Math.max(this.stage.height * 0.75, 0.9), 1.5)
-    this.panel.position.copy(root.position).addScaledVector(side, -0.75).addScaledVector(toUser, 0.15).setY(h)
+    const s = this.avatarScale
+    const h = this.floorY + Math.min(Math.max(this.stage.height * s * 0.75, 0.9), 1.5)
+    this.panel.position.copy(root.position).addScaledVector(side, -(0.45 + 0.3 * s)).addScaledVector(toUser, 0.15).setY(h)
     this.panel.lookAt(head.x, h, head.z)
     if (this.notice && performance.now() > this.noticeUntil) {
       this.notice = ''

@@ -359,7 +359,9 @@ export class AvatarStage {
     // La tête suit un peu le regard.
     const local = vrm.scene.worldToLocal(this.lookTarget.position.clone())
     const dir = local.sub(new THREE.Vector3(0, this.headHeight, 0))
-    const yaw = THREE.MathUtils.clamp(Math.atan2(dir.x, dir.z), -0.6, 0.6) * 0.35
+    // En RA, l'avatar ne pivote plus vers l'utilisateur : sa tête le suit davantage.
+    const xr = this.renderer.xr.isPresenting
+    const yaw = THREE.MathUtils.clamp(Math.atan2(dir.x, dir.z), xr ? -1.3 : -0.6, xr ? 1.3 : 0.6) * (xr ? 0.55 : 0.35)
     const pitch = THREE.MathUtils.clamp(-Math.atan2(dir.y, Math.hypot(dir.x, dir.z)), -0.5, 0.5) * 0.3
 
     let tx = pitch + pose[0]

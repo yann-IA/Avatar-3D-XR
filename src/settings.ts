@@ -214,6 +214,8 @@ export interface Settings {
     current: string
     list: AvatarEntry[]
     framing: 'bust' | 'full'
+    /** Taille de l'avatar en réalité augmentée (1 = taille réelle), réglée à deux mains ou deux doigts. */
+    arScale: number
     followPointer: boolean
   }
 
@@ -312,7 +314,7 @@ export function defaultSettings(): Settings {
       whisper: { baseUrl: 'https://api.openai.com/v1', apiKey: '', model: 'whisper-1' },
       silenceMs: 900,
     },
-    avatar: { current: SAMPLE_AVATAR.id, list: [...BUILTIN_AVATARS], framing: 'bust', followPointer: true },
+    avatar: { current: SAMPLE_AVATAR.id, list: [...BUILTIN_AVATARS], framing: 'bust', followPointer: true, arScale: 1 },
     vault: { applied: '', dismissed: '', locked: [] },
     memory: { enabled: true },
     profiles: {},

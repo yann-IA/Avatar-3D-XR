@@ -25,18 +25,22 @@ gestes, mémoire à long terme.
 |---|---|---|
 | Déplacer l'avatar | Viser le sol et appuyer sur la **gâchette** : il s'y rend | Viser le sol et **pincer** (pouce + index) |
 | Le faire glisser | Maintenir la **gâchette** ou la **poignée** et bouger le rayon | Garder les doigts pincés et bouger la main |
+| Agrandir / réduire | Maintenir les **deux poignées** et écarter / rapprocher les mains | **Pincer des deux mains** et écarter / rapprocher |
+| Faire pivoter l'avatar | **Joystick** gauche / droite, ou tourner les deux mains (poignées maintenues) | Pincer des deux mains et les faire tourner |
 | Parler | Bouton **A** ou **X** (rappuyer pour terminer) | Viser le **bouton micro** du panneau et pincer |
 | L'interrompre | Bouton **B** ou **Y** | Bouton micro pendant qu'il parle |
 | Charger les clés du coffre | Viser le **cadenas** sous le panneau et appuyer sur la gâchette | Viser le cadenas et pincer |
 | Quitter la RA | Bouton **Meta** (menu du casque) | Geste du menu du casque |
 
-L'avatar se tourne toujours vers toi, même quand tu te déplaces. Un **panneau flottant** à côté de lui affiche son
+L'avatar garde son orientation : tu peux **tourner autour de lui**, sa tête et son regard te suivent. Quand tu le
+déplaces, il se tourne vers toi à l'arrivée. La taille choisie est mémorisée. Un **panneau flottant** à côté de lui affiche son
 état (« J'écoute… », « Réfléchit… »), ta phrase et sa réponse. Les messages d'erreur s'y affichent aussi.
 
 **Sur un téléphone Android.** La RA fonctionne aussi avec **Chrome** (pas Firefox ni Samsung Internet) sur un
 téléphone compatible ARCore, avec l'application « Services Google Play pour la RA » installée. Appuie sur **RA** :
 l'avatar apparaît par terre à environ 2 m (bouge un peu le téléphone pour que la caméra trouve le sol), touche
-l'écran à un endroit du sol pour l'y envoyer, et garde le doigt appuyé pour le faire glisser. L'interface habituelle
+l'écran à un endroit du sol pour l'y envoyer, et garde le doigt appuyé pour le faire glisser. **Avec deux doigts**,
+écarte / rapproche pour l'agrandir ou le réduire, et fais-les tourner pour le faire pivoter. L'interface habituelle
 (micro, messages, réglages) reste affichée par-dessus la caméra ; rappuie sur **RA** pour quitter. Sur iPhone,
 Safari ne propose pas encore la RA du web. Si la RA n'est pas possible, le bouton RA reste grisé et explique pourquoi.
 

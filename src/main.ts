@@ -539,6 +539,11 @@ void ARSession.isSupported().then((supported) => {
       stage.stopGesture()
     },
     keys: () => void arUnlock(),
+    onScale(scale) {
+      settings.avatar.arScale = scale
+      saveSettings(settings)
+      ar?.showNotice(`Taille : ${Math.round(scale * 100)} %`, 1500, true)
+    },
     onStart() {
       document.body.classList.add('xr')
       btn.setAttribute('aria-pressed', 'true')
@@ -551,6 +556,7 @@ void ARSession.isSupported().then((supported) => {
     },
     onEnd() {
       document.body.classList.remove('xr')
+      stage.avatarRoot.scale.setScalar(1) // hors RA, l'avatar reprend sa taille normale
       btn.setAttribute('aria-pressed', 'false')
       stage.setFraming(settings.avatar.framing, true)
     },
@@ -571,6 +577,7 @@ void ARSession.isSupported().then((supported) => {
       }
     }
     try {
+      ar?.setScale(settings.avatar.arScale)
       await ar?.start($('ui'))
     } catch (e) {
       toast(`Réalité augmentée impossible : ${(e as Error).message}`)
