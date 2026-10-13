@@ -32,12 +32,12 @@ describe('paramètres selon le modèle', () => {
     })
     const client = new OpenAICompatibleClient({ baseUrl: 'http://localhost:5173/__proxy/x', apiKey: 'k', model: 'gpt-x', temperature: 0.8, maxTokens: 512 })
     let out = ''
-    expect(await client.streamChat({ system: 's', messages: [{ role: 'user', content: 'salut' }], onText: (t) => (out += t) })).toBe('Bonjour !')
+    expect(await client.streamChat({ signal: new AbortController().signal, system: 's', messages: [{ role: 'user', content: 'salut' }], onText: (t) => (out += t) })).toBe('Bonjour !')
     expect(out).toBe('Bonjour !')
     expect(bodies).toHaveLength(2)
     expect(bodies[1]).toMatchObject({ max_completion_tokens: 512, temperature: 0.8 })
     // la fois suivante, directement le bon paramètre
-    await client.streamChat({ system: 's', messages: [], onText: () => {} })
+    await client.streamChat({ signal: new AbortController().signal, system: 's', messages: [], onText: () => {} })
     expect(bodies).toHaveLength(3)
     expect(bodies[2]).not.toHaveProperty('max_tokens')
   })
@@ -46,7 +46,7 @@ describe('paramètres selon le modèle', () => {
     let body: Record<string, unknown> = {}
     vi.stubGlobal('fetch', async (_url: string, init: RequestInit) => ((body = JSON.parse(String(init.body))), sse('ok')))
     const client = new OpenAICompatibleClient({ baseUrl: 'https://api.openai.com/v1', apiKey: 'k', model: 'gpt-5.5', temperature: 0.8, maxTokens: 1024 })
-    await client.streamChat({ system: 's', messages: [], onText: () => {} })
+    await client.streamChat({ signal: new AbortController().signal, system: 's', messages: [], onText: () => {} })
     expect(body).toMatchObject({ reasoning_effort: 'low', max_completion_tokens: 5024 })
     expect(body).not.toHaveProperty('temperature')
   })
