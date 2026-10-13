@@ -469,3 +469,4 @@ body:has(#panel:not([hidden])) .toast { top: auto; bottom: calc(env(safe-area-in
 #ui:xr-overlay { background: transparent; }
 .ar-btn.unavailable { opacity: 0.45; filter: grayscale(1); box-shadow: none; }
 .ar-btn[aria-pressed='true'] { outline: 2px solid #fff; outline-offset: 2px; }
+.vault-status.ready { background: rgba(255, 198, 92, 0.12); border: 1px solid rgba(255, 198, 92, 0.5); color: var(--think); }
