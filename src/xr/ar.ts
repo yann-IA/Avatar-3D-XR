@@ -1,11 +1,14 @@
 import * as THREE from 'three'
 import type { Activity, AvatarStage } from '../avatar/stage'
+import { XRKeyboard, type KeyboardRequest } from './keyboard'
 
 export interface ARHooks {
   /** Bouton micro (A/X, ou le bouton du panneau) : parler / terminer / interrompre. */
   talk(): void
   /** Bouton B/Y : couper la parole de l'avatar. */
   interrupt(): void
+  /** Bouton cadenas du panneau : charger les clés du coffre (ou voir leur état). */
+  keys(): void
   onStart(): void
   onEnd(): void
 }
@@ -16,6 +19,9 @@ const STATUS: Record<Activity, [string, string]> = {
   thinking: ['Réfléchit…', '#ffc65c'],
   speaking: ['Parle — B ou Y pour l’interrompre', '#ff7eb6'],
 }
+
+/** État des clés API, affiché sur le panneau : chargées depuis le coffre, saisies à la main, absentes. */
+export type KeysState = 'vault' | 'manual' | 'missing'
 
 /** Distance maximale (m) à laquelle on peut viser le sol pour déplacer l'avatar. */
 const MAX_REACH = 10
@@ -45,6 +51,11 @@ export class ARSession {
   private readonly mic: THREE.Mesh
   private readonly micCanvas = document.createElement('canvas')
   private readonly micTexture: THREE.CanvasTexture
+  private readonly lock: THREE.Mesh
+  private readonly lockCanvas = document.createElement('canvas')
+  private readonly lockTexture: THREE.CanvasTexture
+  private readonly keyboard = new XRKeyboard()
+  private placeKeyboard = false
   private readonly floor = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0)
   private readonly raycaster = new THREE.Raycaster()
   private readonly target = new THREE.Vector3()
@@ -55,7 +66,9 @@ export class ARSession {
   private userText = ''
   private aiText = ''
   private notice = ''
+  private noticeOk = false
   private noticeUntil = 0
+  private keysState: KeysState = 'missing'
 
   /** Le navigateur sait-il afficher de la réalité augmentée ? (casque Quest : oui) */
   static async isSupported(): Promise<boolean> {
@@ -112,6 +125,19 @@ export class ARSession {
     this.mic.position.set(0, -0.27, 0.001)
     this.mic.renderOrder = 11
     this.panel.add(this.mic)
+
+    // Bouton cadenas : vert quand les clés sont chargées ; sinon il ouvre le clavier du coffre.
+    this.lockCanvas.width = this.lockCanvas.height = 256
+    this.lockTexture = new THREE.CanvasTexture(this.lockCanvas)
+    this.lockTexture.colorSpace = THREE.SRGBColorSpace
+    this.lock = new THREE.Mesh(
+      new THREE.CircleGeometry(0.05, 40),
+      new THREE.MeshBasicMaterial({ map: this.lockTexture, transparent: true, depthWrite: false }),
+    )
+    this.lock.position.set(-0.3, -0.27, 0.001)
+    this.lock.renderOrder = 11
+    this.panel.add(this.lock)
+    scene.add(this.keyboard.mesh)
     this.redraw()
 
     // Manettes ou mains : un rayon par main pour viser.
@@ -163,6 +189,7 @@ export class ARSession {
   }
 
   private cleanup(): void {
+    this.keyboard.cancel()
     this.session = null
     this.stage.xrUpdate = null
     this.reticle.visible = this.shadow.visible = this.panel.visible = false
@@ -188,11 +215,29 @@ export class ARSession {
   }
 
   /** Message temporaire dans le panneau (erreur, conseil…), les toasts n'étant pas visibles en RA. */
-  showNotice(text: string, ms = 6000): void {
+  showNotice(text: string, ms = 6000, ok = false): void {
     this.notice = text
+    this.noticeOk = ok
     this.noticeUntil = performance.now() + ms
     this.redraw()
   }
+
+  setKeys(state: KeysState): void {
+    this.keysState = state
+    this.redraw()
+  }
+
+  /** Affiche le clavier virtuel devant l'utilisateur (saisie de la phrase secrète du coffre). */
+  askText(request: KeyboardRequest): void {
+    this.keyboard.open(request)
+    this.placeKeyboard = true
+  }
+
+  get typing(): boolean {
+    return this.keyboard.isOpen
+  }
+
+
 
   private redraw(): void {
     const ctx = this.panelCanvas.getContext('2d')
@@ -212,10 +257,19 @@ export class ARSession {
     ctx.font = '600 36px system-ui, sans-serif'
     ctx.fillText(label, 96, 77)
 
+    // État des clés, en haut à droite.
+    const [keysLabel, keysColor] =
+      this.keysState === 'vault' ? ['Clés du coffre ✓', '#4fd1a5'] : this.keysState === 'manual' ? ['Clés ✓', '#4fd1a5'] : ['Clés absentes', '#ffc65c']
+    ctx.font = '600 26px system-ui, sans-serif'
+    ctx.fillStyle = keysColor
+    ctx.textAlign = 'right'
+    ctx.fillText(keysLabel, W - 48, 42)
+    ctx.textAlign = 'left'
+
     let y = 140
     const notice = performance.now() < this.noticeUntil ? this.notice : ''
     if (notice) {
-      ctx.fillStyle = '#ffb3b3'
+      ctx.fillStyle = this.noticeOk ? '#7ff0c4' : '#ffb3b3'
       ctx.font = '32px system-ui, sans-serif'
       for (const line of wrap(ctx, notice, W - 96, 4)) {
         ctx.fillText(line, 48, y)
@@ -264,6 +318,38 @@ export class ARSession {
       m.fillRect(121, 170, 14, 34)
     }
     this.micTexture.needsUpdate = true
+
+    // Cadenas : fermé et vert quand les clés sont chargées, ouvert et orange sinon.
+    const l = this.lockCanvas.getContext('2d')
+    if (!l) return
+    const loaded = this.keysState !== 'missing'
+    l.clearRect(0, 0, 256, 256)
+    l.fillStyle = loaded ? '#4fd1a5' : '#ffc65c'
+    l.beginPath()
+    l.arc(128, 128, 120, 0, Math.PI * 2)
+    l.fill()
+    l.strokeStyle = l.fillStyle = '#1b1c2e'
+    l.lineWidth = 18
+    l.beginPath()
+    if (loaded) l.arc(128, 112, 34, Math.PI, 0)
+    else l.arc(128, 100, 34, Math.PI, -0.1 * Math.PI)
+    l.stroke()
+    if (loaded) {
+      l.beginPath()
+      l.moveTo(94, 112)
+      l.lineTo(94, 130)
+      l.moveTo(162, 112)
+      l.lineTo(162, 130)
+      l.stroke()
+    } else {
+      l.beginPath()
+      l.moveTo(94, 100)
+      l.lineTo(94, 130)
+      l.stroke()
+    }
+    roundRect(l, 76, 124, 104, 80, 14)
+    l.fill()
+    this.lockTexture.needsUpdate = true
   }
 
   /* ------------------------------ Interaction ------------------------------ */
@@ -280,15 +366,24 @@ export class ARSession {
     return hit && hit.distanceTo(ray.origin) <= MAX_REACH ? hit : null
   }
 
-  private pointsAtMic(c: THREE.Group): boolean {
+  private pointsAt(c: THREE.Group, object: THREE.Object3D): boolean {
     const ray = this.rayFrom(c)
     this.raycaster.set(ray.origin, ray.direction)
-    return this.raycaster.intersectObject(this.mic, false).length > 0
+    return this.raycaster.intersectObject(object, false).length > 0
   }
 
   private onPress(c: THREE.Group): void {
-    if (this.panel.visible && this.pointsAtMic(c)) {
+    if (this.keyboard.isOpen) {
+      const ray = this.rayFrom(c)
+      const key = this.keyboard.hit(ray)
+      if (key) this.keyboard.press(key)
+      if (this.keyboard.covers(ray)) return
+    } else if (this.panel.visible && this.pointsAt(c, this.mic)) {
       this.hooks.talk()
+      return
+    }
+    if (this.panel.visible && this.pointsAt(c, this.lock)) {
+      this.hooks.keys()
       return
     }
     const hit = this.floorHit(c)
@@ -301,6 +396,7 @@ export class ARSession {
 
   /** Boutons A/X (index 4) et B/Y (index 5) de la manette (profil « xr-standard »). */
   private pollButtons(): void {
+    const typing = this.keyboard.isOpen // pas de micro pendant la saisie de la phrase secrète
     for (const [c, source] of this.sources) {
       const buttons = source.gamepad?.buttons
       if (!buttons) continue
@@ -310,7 +406,7 @@ export class ARSession {
       ] as const) {
         const key = `${c.uuid}:${index}`
         const down = Boolean(buttons[index]?.pressed)
-        if (down && !this.pressed.get(key)) action()
+        if (down && !this.pressed.get(key) && !typing) action()
         this.pressed.set(key, down)
       }
     }
@@ -340,6 +436,27 @@ export class ARSession {
       const hit = this.floorHit(c)
       if (hit && (!aim || this.dragging.has(c))) aim = hit
       if (hit && this.dragging.has(c)) this.target.copy(hit)
+    }
+    // Clavier : placé devant l'utilisateur à l'ouverture, un peu sous les yeux, incliné vers lui.
+    if (this.keyboard.isOpen) {
+      if (this.placeKeyboard && head.lengthSq() > 0) {
+        const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.getWorldQuaternion(new THREE.Quaternion()))
+        forward.y = 0
+        if (forward.lengthSq() < 1e-4) forward.set(0, 0, -1)
+        forward.normalize()
+        const kb = this.keyboard.mesh
+        kb.position.set(head.x + forward.x * 0.6, head.y - 0.28, head.z + forward.z * 0.6)
+        kb.lookAt(head)
+        this.placeKeyboard = false
+      }
+      let hover = null
+      for (const c of this.controllers) {
+        if (!this.sources.has(c)) continue
+        const ray = this.rayFrom(c)
+        hover ??= this.keyboard.hit(ray)
+        if (this.keyboard.covers(ray)) aim = null // pas de cercle au sol en visant le clavier
+      }
+      this.keyboard.setHover(hover)
     }
     this.reticle.visible = aim !== null
     if (aim) this.reticle.position.copy(aim).setY(0.004)

@@ -27,6 +27,7 @@ gestes, mémoire à long terme.
 | Le faire glisser | Maintenir la **gâchette** ou la **poignée** et bouger le rayon | Garder les doigts pincés et bouger la main |
 | Parler | Bouton **A** ou **X** (rappuyer pour terminer) | Viser le **bouton micro** du panneau et pincer |
 | L'interrompre | Bouton **B** ou **Y** | Bouton micro pendant qu'il parle |
+| Charger les clés du coffre | Viser le **cadenas** sous le panneau et appuyer sur la gâchette | Viser le cadenas et pincer |
 | Quitter la RA | Bouton **Meta** (menu du casque) | Geste du menu du casque |
 
 L'avatar se tourne toujours vers toi, même quand tu te déplaces. Un **panneau flottant** à côté de lui affiche son
@@ -249,9 +250,24 @@ plus qu'à taper cette phrase.
 2. Le fichier **`vault.json`** est téléchargé. Publie-le avec le site : ouvre
    [le dossier `public` du dépôt sur GitHub](https://github.com/yann-IA/Avatar-3D-XR/upload/main/public),
    glisse le fichier dans la page, puis **Commit changes**. Le site est mis à jour en une à deux minutes.
-3. **Sur le casque**, ouvre l'application : elle propose aussitôt le coffre. Tape la phrase secrète, c'est prêt.
-   Si tu crées plus tard un nouveau coffre (nouvelle clé), il est proposé à nouveau sur les appareils déjà
-   configurés.
+3. **Sur le casque**, ouvre l'application : elle propose aussitôt le coffre. Tape la phrase secrète puis
+   **Entrée** (ou « Déverrouiller »), c'est prêt. Tu peux aussi le faire **directement en RA** : si aucune clé
+   n'est chargée, un clavier virtuel apparaît devant toi en entrant en RA ; vise les touches avec la manette
+   (ou la main) et appuie sur la gâchette (ou pince), puis « Valider ». Le bouton **cadenas** sous le panneau
+   flottant rouvre ce clavier. Si tu crées plus tard un nouveau coffre (nouvelle clé), il est proposé à nouveau
+   sur les appareils déjà configurés.
+
+**Indicateurs.** En haut de l'écran, la pastille verte **🔐 Clés chargées** confirme que les clés du coffre sont
+sur l'appareil (une pastille orange **🔒 Coffre verrouillé** signifie qu'il reste à taper la phrase secrète ; un
+clic dessus ouvre la fenêtre). ⚙ → IA détaille les clés chargées. En RA, le panneau affiche « Clés du coffre ✓ »
+et le cadenas devient vert.
+
+**Clés masquées.** Les clés chargées depuis le coffre ne sont jamais affichées dans les réglages (IA, Voix,
+Écoute) : à leur place, « 🔐 Chargée depuis le coffre ». Personne ne peut donc les lire ni les recopier en
+prenant le casque. « Remplacer » efface une clé pour en saisir une autre à la main.
+
+**Désactiver le coffre.** ⚙ → IA → **Désactiver le coffre** efface de l'appareil les clés qu'il avait chargées
+(par exemple avant de prêter le casque). Ta phrase secrète permet de les recharger à tout moment.
 
 Sans publier le fichier, tu peux aussi le copier sur l'appareil et utiliser **⚙ → IA → Importer un fichier de
 coffre**.
@@ -298,6 +314,7 @@ src/
 │   ├── chunker.ts          découpe le flux en phrases prononçables
 │   └── emotion.ts          balises d'émotion et nettoyage du texte (markdown, emojis…)
 ├── xr/ar.ts                réalité augmentée : placement au sol, manettes/mains, panneau flottant
+├── xr/keyboard.ts          clavier virtuel en RA (phrase secrète du coffre)
 ├── llm/                    clients IA (compatible OpenAI, Anthropic)
 ├── tts/                    moteurs de voix et file de lecture
 ├── stt/                    reconnaissance vocale (navigateur, Whisper + détection de silence)

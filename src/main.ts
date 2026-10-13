@@ -6,7 +6,7 @@ import { MemoryManager } from './core/memory'
 import { browserSTTAvailable } from './stt/engines'
 import { ARSession } from './xr/ar'
 import { VaultDialog } from './ui/vaultDialog'
-import { fetchVault, parseVault } from './vault'
+import { WrongPassphraseError, availableVault, forgetVaultKeys, loadedVaultKeys, parseVault, releaseKey, unlockVault, type VaultFile } from './vault'
 import { DEFAULT_PROFILES, applyProfile, resetProfile, switchProfile } from './profiles'
 import { createLLM } from './llm'
 import { PROVIDERS, loadSettings, saveSettings, type AnimationEntry, type AvatarEntry } from './settings'
@@ -246,20 +246,90 @@ function personaChanged(): void {
 
 /* ---------------------------- Coffre à clés ---------------------------- */
 
-const vault = new VaultDialog(settings, (keys) => {
+const plural = (n: number, word: string) => `${n} ${word}${n > 1 ? 's' : ''}`
+
+/** Clés du coffre chargées : on recharge la voix et on met les indicateurs à jour. */
+function vaultApplied(keys: number): void {
   convo.reloadVoice()
   if (panel.isOpen) panel.render()
-  toast(`🔐 ${keys} clé${keys > 1 ? 's' : ''} chargée${keys > 1 ? 's' : ''} depuis le coffre.`, 'info', 4000)
+  updateKeysIndicator()
+  const msg = `${plural(keys, 'clé')} ${keys > 1 ? 'chargées' : 'chargée'} depuis le coffre.`
+  toast(`🔐 ${msg}`, 'info', 5000)
+  if (ar?.active) ar.showNotice(`✓ ${msg} Tu peux parler (A ou X).`, 6000, true)
+}
+
+const vault = new VaultDialog(settings, vaultApplied)
+/** Dernier coffre trouvé (site ou fichier importé), pour l'indicateur et la réalité augmentée. */
+let knownVault: VaultFile | null = null
+
+/** Indicateur en haut de l'écran (et sur le panneau en RA) : les clés sont-elles chargées ? */
+function updateKeysIndicator(): void {
+  const badge = $<HTMLButtonElement>('keys-badge')
+  const fromVault = loadedVaultKeys(settings)
+  if (fromVault) {
+    badge.className = 'keys-badge on'
+    badge.innerHTML = `🔐<span class="label"> Clés chargées</span>`
+    badge.title = `${plural(fromVault, 'clé')} du coffre ${fromVault > 1 ? 'sont chargées' : 'est chargée'} sur cet appareil`
+  } else if (needsSetup() && knownVault) {
+    badge.className = 'keys-badge off'
+    badge.innerHTML = `🔒<span class="label"> Coffre verrouillé</span>`
+    badge.title = 'Entre ta phrase secrète pour charger tes clés API'
+  }
+  badge.hidden = !fromVault && !(needsSetup() && knownVault)
+  ar?.setKeys(fromVault ? 'vault' : needsSetup() ? 'missing' : 'manual')
+}
+
+$('keys-badge').addEventListener('click', () => {
+  if (!loadedVaultKeys(settings) && knownVault) vault.unlock(knownVault, { remindLater: false })
+  else panel.open('ia')
 })
 
-/** Au démarrage : propose le coffre publié avec le site s'il est nouveau pour cet appareil. */
+/** Au démarrage : propose le coffre s'il est nouveau pour cet appareil. */
 async function offerVault(): Promise<boolean> {
-  const file = await fetchVault()
-  if (!file || file.created === settings.vault.applied || file.created === settings.vault.dismissed) return false
-  // Appareil pas encore configuré, ou coffre plus récent que celui déjà chargé ici.
-  if (!needsSetup() && !(settings.vault.applied && file.created > settings.vault.applied)) return false
-  vault.unlock(file)
-  return true
+  const file = (knownVault = await availableVault())
+  updateKeysIndicator()
+  if (!file || file.created === settings.vault.applied) return false
+  // Appareil sans clé : on propose toujours le coffre (« Plus tard » ne vaut que pour cette fois).
+  if (needsSetup()) {
+    vault.unlock(file)
+    return true
+  }
+  // Appareil déjà configuré : seulement un coffre plus récent que celui chargé ici, s'il n'a pas été écarté.
+  if (settings.vault.applied && file.created > settings.vault.applied && file.created !== settings.vault.dismissed) {
+    vault.unlock(file)
+    return true
+  }
+  return false
+}
+
+/** Réalité augmentée : clavier virtuel pour taper la phrase secrète sans quitter le casque. */
+async function arUnlock(): Promise<void> {
+  if (!ar?.active || ar.typing) return
+  const loaded = loadedVaultKeys(settings)
+  if (loaded && !needsSetup()) {
+    ar.showNotice(`✓ ${plural(loaded, 'clé')} du coffre ${loaded > 1 ? 'sont chargées' : 'est chargée'}. Pour ${loaded > 1 ? 'les' : 'la'} désactiver : ⚙ → IA → « Désactiver le coffre ».`, 7000, true)
+    return
+  }
+  const file = (knownVault = await availableVault())
+  if (!file) {
+    ar.showNotice('Aucun coffre à clés disponible. Crée-le sur ton PC (⚙ → IA → Coffre à clés) puis publie-le avec le site.', 8000)
+    return
+  }
+  ar.askText({
+    title: '🔐 Coffre à clés',
+    hint: 'Vise les touches et appuie sur la gâchette (ou pince), puis « Valider ».',
+    async submit(text) {
+      try {
+        vaultApplied(await unlockVault(settings, file, text))
+        return null
+      } catch (e) {
+        return e instanceof WrongPassphraseError ? 'Phrase secrète incorrecte, réessaie.' : `Coffre illisible : ${(e as Error).message}`
+      }
+    },
+    cancel() {
+      if (needsSetup()) ar?.showNotice('Sans clé API, l’avatar ne peut pas répondre. Le cadenas sous le panneau rouvre le clavier.', 7000)
+    },
+  })
 }
 
 /* ------------------------------ Réglages ------------------------------ */
@@ -267,6 +337,7 @@ async function offerVault(): Promise<boolean> {
 const panel = new SettingsPanel(settings, {
   onChange(path) {
     if (path.startsWith('tts.') || path === 'persona.language' || path === 'useProxy') convo.reloadVoice()
+    if (path.endsWith('.apiKey') || path === 'activeProvider') updateKeysIndicator()
     if (path === 'persona.name') $('persona-name').textContent = settings.persona.name
     if (path === 'memory.enabled' && !settings.memory.enabled) memory.disable()
     if (path === 'avatar.framing') stage.setFraming(settings.avatar.framing)
@@ -358,9 +429,25 @@ const panel = new SettingsPanel(settings, {
   },
   vaultCreate: () => vault.create(),
   async vaultLoad() {
-    const file = await fetchVault()
+    const file = (knownVault = await availableVault())
     if (file) vault.unlock(file, { remindLater: false })
     else toast(`Aucun coffre n’est publié avec le site pour l’instant. Crée-le, puis dépose vault.json dans le dossier public du dépôt.`, 'info', 7000)
+  },
+  vaultForget() {
+    if (!confirm('Désactiver le coffre ? Les clés qu’il a chargées seront effacées de cet appareil. Ta phrase secrète permettra de les recharger.')) return
+    const n = forgetVaultKeys(settings)
+    convo.reloadVoice()
+    panel.render()
+    updateKeysIndicator()
+    toast(`🔓 Coffre désactivé : ${plural(n, 'clé')} ${n > 1 ? 'effacées' : 'effacée'} de cet appareil.`, 'info', 5000)
+  },
+  vaultRelease(path) {
+    if (!confirm('Effacer cette clé du coffre pour en saisir une autre ?')) return
+    releaseKey(settings, path)
+    convo.reloadVoice()
+    panel.render()
+    updateKeysIndicator()
+    panel.focusField(path)
   },
   async vaultImport(f) {
     const file = parseVault(await f.text())
@@ -415,7 +502,7 @@ void ARSession.isSupported().then((supported) => {
   ar = new ARSession(stage, {
     talk() {
       if (needsSetup()) {
-        ar?.showNotice('Configure d\u2019abord ton IA et ta clé API dans les réglages (⚙), hors du mode RA.')
+        void arUnlock()
         return
       }
       if (settings.stt.engine === 'browser' && !browserSTTAvailable()) {
@@ -428,12 +515,15 @@ void ARSession.isSupported().then((supported) => {
       convo.interrupt()
       stage.stopGesture()
     },
+    keys: () => void arUnlock(),
     onStart() {
       document.body.classList.add('xr')
       panel.close()
       ar?.setState(convo.current)
       ar?.setUserText(userLine.textContent ?? '')
       ar?.setAssistantText(aiLine.textContent ?? '')
+      updateKeysIndicator()
+      if (needsSetup()) void arUnlock() // pas encore de clé : le clavier du coffre s'ouvre tout de suite
     },
     onEnd() {
       document.body.classList.remove('xr')
